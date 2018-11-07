@@ -159,6 +159,7 @@ void FileAnalysis::GetIps()
 
 int FileAnalysis::InitWorkStationSocket()
 {
+	HANDLE hThread = CreateThread(NULL, 0, FileAnalysis::connectStationThread, this, 0, NULL);
 	return 0;
 }
 
@@ -266,6 +267,13 @@ int FileAnalysis::RecevieFile()
 	isAnalysing = false;
 	isReceiving = false;
 	closesocket(sockClient);//¹Ø±ÕÌ×½Ó×Ö
+	return 0;
+}
+
+DWORD FileAnalysis::connectStationThread(LPVOID lpParam)
+{
+	FileAnalysis* p = (FileAnalysis*)lpParam;
+	p->RecevieFile();
 	return 0;
 }
 

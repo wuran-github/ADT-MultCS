@@ -10,10 +10,10 @@
 #include <qdatastream.h>
 #include <time.h>
 #include <queue>
-class FileAnalysis
+class Distribute
 {
 public:
-	FileAnalysis();
+	Distribute();
 	//entry
 	void Run();
 	//通用方法
@@ -23,24 +23,12 @@ public:
 	void GetConfig();
 
 	//distribute
-	int InitAnalysisSocket();
-	int CreateAnalysisSocket();
-	int AcceptDistributeSocket();
-	void GetWorkStationInfo();
-	static DWORD WINAPI AcceptDistributeThread(LPVOID lpParam);
-
-	//workstation
-	int InitWorkStationSocket();
-	int RecevieFile();
-	static DWORD WINAPI connectStationThread(LPVOID lpParam);
-
-	//通知管理器
-	int InitManagerSocket();
-	int CreateManagerSocket();
-	void SendIPAndStatus();
-	static DWORD WINAPI connectManagerThread(LPVOID lpParam);
-
-	~FileAnalysis();
+	int InitStationSocket();
+	int CreateStationSocket();
+	int AcceptStationSocket();
+	void GetWorkStationRequest();
+	static DWORD WINAPI AcceptStationThread(LPVOID lpParam);
+	~Distribute();
 private:
 	void GetIps();
 private:
