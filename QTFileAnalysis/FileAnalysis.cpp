@@ -141,7 +141,7 @@ void FileAnalysis::GetWorkStationInfo()
 DWORD FileAnalysis::AcceptDistributeThread(LPVOID lpParam)
 {
 	FileAnalysis* p = (FileAnalysis*)lpParam;
-	p->GetWorkStationInfo();
+	p->AcceptDistributeSocket();
 	return 0;
 }
 

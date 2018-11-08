@@ -10,6 +10,14 @@
 #include <qdatastream.h>
 #include <time.h>
 #include <queue>
+
+struct AnalysisData
+{
+	std::string ip;
+	int port;
+	/* data */
+};
+
 class Distribute
 {
 public:
@@ -23,11 +31,21 @@ public:
 	void GetConfig();
 
 	//distribute
-	int InitStationSocket();
-	int CreateStationSocket();
+	int InitDistributeSocket();
+	int CreateDistributeSocket();
 	int AcceptStationSocket();
-	void GetWorkStationRequest();
+	void GetWorkStationRequest(SOCKET socket);
 	static DWORD WINAPI AcceptStationThread(LPVOID lpParam);
+	//用多线程来获取要发送文件的station
+	static DWORD WINAPI GetStationInfoThread(LPVOID lpParam);
+
+	//analysis
+	int InitDistributeSocket();
+	int CreateDistributeSocket();
+	int AcceptStationSocket();
+	int NoticeAnalysis(std::string stationIP,int stationPort);
+	static DWORD WINAPI AcceptStationThread(LPVOID lpParam);
+
 	~Distribute();
 private:
 	void GetIps();
@@ -40,7 +58,8 @@ private:
 
 	std::string managerIP;
 	int managerPort;
-
+	//File Analysis
+	std::vector<AnalysisData> AnalysisList;
 
 	//status
 	bool isReceiving;
