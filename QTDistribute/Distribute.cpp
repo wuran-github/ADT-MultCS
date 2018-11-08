@@ -58,9 +58,25 @@ void Distribute::GetConfig()
 	isAnalysing = false;
 	auto path = QDir::currentPath() + "/config.config";
 	QFile file(path);
+	file.open(QFile::ReadOnly);
 	if (file.exists()) {
 		auto portstr = file.readAll().data();
 		port = atoi(portstr);
+	}
+	file.close();
+
+	//get analysis config
+	auto analysisPath= QDir::currentPath() + "/analysis.config";
+	QFile als(analysisPath);
+	if (als.exists()) {
+		QTextStream in(&file);
+		while (in.atEnd()) {
+			QStringList analysisInfo=in.readLine().split(',');
+			AnalysisData info;
+			info.ip = analysisInfo[0].toStdString();
+			info.port = analysisInfo[1].toInt();
+			this->AnalysisList.push_back(info);
+		}
 	}
 }
 
@@ -84,7 +100,7 @@ void Distribute::GetIps()
 int Distribute::InitDistributeSocket()
 {
 	CreateDistributeSocket();
-	HANDLE hThread = CreateThread(NULL, 0, FileAnalysis::AcceptStationThread, this, 0, NULL);
+	HANDLE hThread = CreateThread(NULL, 0, Distribute::AcceptStationThread, this, 0, NULL);
 	return 0;
 }
 
@@ -137,7 +153,7 @@ int Distribute::AcceptStationSocket()
 		param.point=this;
 		//多客户端的方法就每接收到一个accept就在开启一个线程
 		//同时有可能有多个station过来
-		HANDLE hThread = CreateThread(NULL, 0, FileAnalysis::GetStationInfoThread, &param, 0, NULL);
+		HANDLE hThread = CreateThread(NULL, 0, Distribute::GetStationInfoThread, &param, 0, NULL);
 	}
 }
 
@@ -150,7 +166,7 @@ void Distribute::GetWorkStationRequest(SOCKET socket)
 	//char[] 转结构体
 	info = (StationInfo *)recvBuffer;
 	std::string ip=info->ip;
-	int port=info->ip;
+	int port=info->port;
 	//确认
 	send(socket,ack,sizeof(ack),0);
 
