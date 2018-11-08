@@ -178,6 +178,10 @@ int Distribute::NoticeAnalysis(std::string stationIP,int stationPort)
 	AnalysisData analysis=this->AnalysisList[this->nowAnalysis];
 	this->nowAnalysis= (this->nowAnalysis+1)%this->AnalysisList.size();
 
+	//set satation info
+	StationInfo info;
+	info.ip=stationIP;
+	info.port=port;
 
 	SOCKET sockClient = socket(AF_INET, SOCK_STREAM, 0);
 	SOCKADDR_IN addrSrv;
@@ -193,26 +197,17 @@ int Distribute::NoticeAnalysis(std::string stationIP,int stationPort)
 
 		char sendBuffer[1024];
 		char recvBuffer[1024];
-		//一直发送状态信息
-		while (true)
-		{
-			//获取状态信息
-			AnalysisStatus status;
-			status.ip = this->ips[0];
-			status.port = this->port;
-			status.analyzing = this->isAnalysing;
-			status.receiving = this->isReceiving;
 
 			//th
 			//结构体转成char[]
-			memcpy(sendBuffer, &status, sizeof(status));
+			memcpy(sendBuffer, &info, sizeof(info));
 
 			//第一次先发送文件信息
 			send(sockClient, sendBuffer, 1024, NULL);
 
 			//然后等待确认指令
 			recv(sockClient, recvBuffer, 1024, 0);
-		}
+		
 		//判断信号，fix me
 	}
 

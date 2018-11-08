@@ -60,7 +60,7 @@ private:
 	int managerPort;
 	//File Analysis
 	std::vector<AnalysisData> AnalysisList;
-
+	int nowAnalysis;
 	//status
 	bool isReceiving;
 	bool isAnalysing;
