@@ -99,7 +99,7 @@ int FileAnalysis::CreateAnalysisSocket()
 		closesocket(analysisSocket);
 		return FALSE;
 	}
-	listen(stationSocket, 5);//¿ªÆô¼àÌý
+	listen(analysisSocket, 5);//¿ªÆô¼àÌý
 
 	return 1;
 }
