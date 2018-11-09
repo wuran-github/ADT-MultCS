@@ -2,8 +2,9 @@
 
 
 struct WorkStationInfo {
-	std::string ip;
 	int port;
+	std::string ip;
+	int fileNum;
 };
 struct AnalysisStatus {
 	std::string ip;
@@ -13,22 +14,42 @@ struct AnalysisStatus {
 };
 struct FileParam
 {
-	std::string fileNames[100] = { 0 };
-	int fileSize[100] = { 0 };
+	std::string fileNames[100];
+	int fileSize[100] ;
 	int num = 0;
 };
 FileAnalysis::FileAnalysis()
 {
+	Init();
 }
 
 void FileAnalysis::Run()
 {
+	//创建socket 等待distribute connect 发配任务
+	InitAnalysisSocket();
+	//connect manager send ip
+	InitManagerSocket();
+
+	//connect distribute send analysing status
+	InitDistributeSocket();
+	//防止被关掉
+	while (true)
+	{
+		
+	}
+
 }
 
 void FileAnalysis::Init()
 {
+	hMutex = CreateMutexA(NULL, FALSE, "hMutex");
+	fileMutex= CreateMutexA(NULL, FALSE, "File Mutex");
+	GetIps();
 	GetConfig();
 	InitSocket();
+	for (int i = 0; i < threadNum; i++) {
+		CreateAnalyzeThread();
+	}
 }
 
 int FileAnalysis::InitSocket()
@@ -52,20 +73,36 @@ int FileAnalysis::InitSocket()
 		WSACleanup();
 		return FALSE;
 	}
-
+	return 1;
 }
 
 void FileAnalysis::GetConfig()
 {
 	GetIps();
-	port = 8989;
 	isReceiving = false;
 	isAnalysing = false;
-	auto path = QDir::currentPath() + "/config.config";
+	auto temp=QCoreApplication::applicationDirPath();
+	auto path = temp + "/config.config";
 	QFile file(path);
 	if (file.exists()) {
-		auto portstr = file.readAll().data();
-		port = atoi(portstr);
+		file.open(QFile::ReadOnly | QFile::Text);
+		auto portstr = file.readLine();
+		this->port = atoi(portstr);
+		file.close();
+	}
+
+	//获取管理器的IP和端口
+	auto managerPath= temp + "/man.config";
+	QFile mfile(managerPath);
+	if (mfile.exists()) {
+		mfile.open(QFile::ReadOnly);
+		QTextStream in(&mfile);
+		while (!in.atEnd()) {
+			QStringList infoList = in.readLine().split(',');
+			this->managerIP = infoList[0].toStdString();
+			this->managerPort = infoList[1].toInt();
+		}
+		mfile.close();
 	}
 }
 
@@ -117,7 +154,7 @@ int FileAnalysis::AcceptDistributeSocket()
 			wprintf(L"accept failed with error: %ld\n", WSAGetLastError());
 			closesocket(distributeSocket);
 			WSACleanup();
-			return;
+			return -1;
 		}
 		//多客户端的方法就每接收到一个accept就在开启一个线程
 		GetWorkStationInfo();
@@ -126,16 +163,21 @@ int FileAnalysis::AcceptDistributeSocket()
 
 void FileAnalysis::GetWorkStationInfo()
 {
+	
 	char recvBuffer[1024];
 	WorkStationInfo* info;
-	recv(analysisSocket, recvBuffer, 1024, NULL);
+	recv(distributeSocket, recvBuffer, 1024, NULL);
 	//char[] 转结构体
 	info = (WorkStationInfo *)recvBuffer;
 
 	this->workStationIP = info->ip;
 	this->workStationPort = info->port;
 
+	//notice ack
+	send(distributeSocket, ack, sizeof(ack), 0);
 
+	//开始接收文件
+	InitWorkStationSocket();
 }
 
 DWORD FileAnalysis::AcceptDistributeThread(LPVOID lpParam)
@@ -152,7 +194,9 @@ void FileAnalysis::GetIps()
 		if (address.protocol() == QAbstractSocket::IPv4Protocol)
 		{
 			QString ip = address.toString();
-			ips.push_back(ip.toStdString());
+			//ips.push_back(ip.toStdString());
+			//测试
+			ips.push_back("127.0.0.1");
 		}
 	}
 }
@@ -178,33 +222,32 @@ int FileAnalysis::RecevieFile()
 	if (!::connect(sockClient, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR)))
 	{
 		isReceiving = true;
-		QString path = QDir::currentPath() + "/";
-		QString logName = path + "FileResult.log";
-		QFile log(logName);
+		QString path = QCoreApplication::applicationDirPath() + "/";
 		char sendBuffer[1024];
 		char recvBuffer[1024];
-		char* ack = "ack";
 
+		char infoBuffer[1024 * 100];
 		//chulilog
-		log.open(QFile::Append|QFile::WriteOnly);
 
 		//一直发送状态信息
 
 			//第一次先接收文件信息
 		FileParam* param;
 
-		recv(sockClient, recvBuffer, 1024, 0);
+		int res=recv(sockClient, infoBuffer, 1024*100, 0);
 
-		param = (FileParam*)recvBuffer;
+		param = (FileParam*)infoBuffer;
 
 		if (param != NULL) {
 			//确认收到了文件信息
 			send(sockClient, ack, sizeof(ack), 0);
 
+			totalNum++;
 
+			int receivedNum = 0;
 			for (int i = 0; i < param->num; i++) {
 
-				auto filename = QString::fromStdString(param->fileNames[i]);
+				auto filename = QString::number(totalNum) + QString::fromStdString(param->fileNames[i]);
 				auto tempPath = path + filename;
 				file_size = param->fileSize[i];
 				QFile file(tempPath);
@@ -226,6 +269,8 @@ int FileAnalysis::RecevieFile()
 						dwNumberOfBytesRecv = ::recv(sockClient, Buffer, sizeof(Buffer), 0);
 						file.write(Buffer, dwNumberOfBytesRecv);
 						dwCountOfBytesRecv += dwNumberOfBytesRecv;
+						//每接受完一次告诉对方接收完毕
+						//send(sockClient, ack, sizeof(ack), 0);
 
 					} while ((file_size - dwCountOfBytesRecv) && dwNumberOfBytesRecv > 0);
 
@@ -235,38 +280,20 @@ int FileAnalysis::RecevieFile()
 				{
 					std::cout << "get file size failed" << std::endl;
 				}
+				this->sizeList.push(file_size);
+				this->analysisList.push(filename);
 				//接收完毕后通知接收完毕,开始下一个文件
 				send(sockClient, ack, sizeof(ack), 0);
-
-				isAnalysing = true;
-				//保存文件信息
-				SYSTEMTIME st = { 0 };
-				GetLocalTime(&st);
-				std::string date = std::to_string(st.wYear) + "-" + std::to_string(st.wMonth) + "-" + std::to_string(st.wDay);
-				std::string time = std::to_string(st.wHour) + ":" + std::to_string(st.wMinute) + ":" + std::to_string(st.wSecond);
-
-				auto temp = filename + ", ";
-
-				temp += QString::fromStdString(this->workStationIP + ", ");
-
-				std::string tempPort = std::to_string(this->workStationPort) + ", ";
-
-				temp += QString::fromStdString(tempPort);
-				temp += QString::fromStdString(date + ", ");
-				temp += QString::fromStdString(time + ", ");
-				temp += file.read(8);
-				temp += QString("%1").arg(file_size) + "\n";
-
-				log.write(temp.toLatin1());
 				file.close();
+				
 			}
 
 		}
-		log.close();
 	}
-	isAnalysing = false;
 	isReceiving = false;
 	closesocket(sockClient);//关闭套接字
+
+
 	return 0;
 }
 
@@ -327,6 +354,9 @@ void FileAnalysis::SendIPAndStatus()
 
 			//然后等待确认指令
 			recv(sockClient, recvBuffer, 1024, 0);
+
+			//1 sec
+			Sleep(1000);
 		}
 		//判断信号，fix me
 	}
@@ -338,6 +368,149 @@ DWORD FileAnalysis::connectManagerThread(LPVOID lpParam)
 {
 	FileAnalysis* p = (FileAnalysis*)lpParam;
 	p->SendIPAndStatus();
+	return 0;
+}
+
+void FileAnalysis::CreateAnalyzeThread()
+{
+	HANDLE hThread = CreateThread(NULL, 0, FileAnalysis::AnalyzeFileThread, this, 0, NULL);
+
+}
+
+void FileAnalysis::AnalyzeFile()
+{
+	while (true) {
+
+		if (analysisList.empty()) {
+			continue;
+		}
+
+		QString path = QCoreApplication::applicationDirPath() + "/";
+		QString logName = path + "FileResult.log";
+		QFile log(logName);
+		//加锁
+		WaitForSingleObject(this->hMutex, this->millisec);
+		if(!analysisList.empty()) {
+
+
+			isAnalysing = true;
+			//read file name
+			QString filename = analysisList.front();
+			analysisList.pop();
+			int size = sizeList.front();
+			sizeList.pop();
+			ReleaseMutex(this->hMutex);
+
+			QFile file(path + filename);
+			file.open(QFile::ReadOnly);
+			//保存文件信息
+			SYSTEMTIME st = { 0 };
+			GetLocalTime(&st);
+			std::string date = std::to_string(st.wYear) + "-" + std::to_string(st.wMonth) + "-" + std::to_string(st.wDay);
+			std::string time = std::to_string(st.wHour) + ":" + std::to_string(st.wMinute) + ":" + std::to_string(st.wSecond);
+
+			auto temp = filename + ", ";
+
+			temp += QString::fromStdString(this->workStationIP + ", ");
+
+			std::string tempPort = std::to_string(this->workStationPort) + ", ";
+
+			temp += QString::fromStdString(tempPort);
+			temp += QString::fromStdString(date + ", ");
+			temp += QString::fromStdString(time + ", ");
+			temp += file.read(8);
+			temp += QString(" ,%1").arg(size) + "\r\n";
+
+			//加锁
+			WaitForSingleObject(this->fileMutex, this->millisec);
+			log.open(QFile::Append | QFile::WriteOnly);
+			log.write(temp.toLatin1());
+			log.close();
+			ReleaseMutex(this->fileMutex);
+			file.close();
+
+			//删除文件
+			if (this->deleteAfter) {
+				file.remove();
+			}
+			//模拟长久的分析时间
+			Sleep(200);
+		}
+		else {
+			ReleaseMutex(this->hMutex);
+		}
+		isAnalysing = false;
+	}
+}
+
+DWORD FileAnalysis::AnalyzeFileThread(LPVOID lpParam)
+{
+	FileAnalysis* p = (FileAnalysis*)lpParam;
+	p->AnalyzeFile();
+	return 0;
+}
+
+int FileAnalysis::InitDistributeSocket()
+{
+	HANDLE hThread = CreateThread(NULL, 0, FileAnalysis::connectDistributeThread, this, 0, NULL);
+	return 0;
+}
+
+
+
+void FileAnalysis::SendAnalyzingFileNum()
+{
+
+	SOCKET sockClient = socket(AF_INET, SOCK_STREAM, 0);
+	SOCKADDR_IN addrSrv;
+	addrSrv.sin_addr.S_un.S_addr = inet_addr(this->distributeIP.c_str());
+	addrSrv.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+	//addrSrv.sin_port = htons(this->distributePort);
+	addrSrv.sin_port = htons(8001);
+	addrSrv.sin_family = AF_INET;
+	//::connect(sockClient,(SOCKADDR*)&addrSrv,sizeof(SOCKADDR));
+	//recv(sockClient,(char*)&file_size,sizeof(unsigned long long)+1,NULL);
+	while (::connect(sockClient, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR))) {
+
+	}
+	/*if (!::connect(sockClient, (SOCKADDR*)&addrSrv, sizeof(SOCKADDR)))
+	{*/
+
+
+		char sendBuffer[1024];
+		char recvBuffer[1024];
+		//一直发送状态信息
+		while (true)
+		{
+			//获取状态信息
+			WorkStationInfo info;
+			info.ip = this->ips[0];
+			info.port = this->port;
+			info.fileNum = this->analysisList.size();
+
+			//th
+			//结构体转成char[]
+			memcpy(sendBuffer, &info, sizeof(info));
+
+			//第一次先发送文件信息
+			send(sockClient, sendBuffer, 1024, NULL);
+
+			//然后等待确认指令
+			recv(sockClient, recvBuffer, 1024, 0);
+
+			//1 sec
+			Sleep(1000* toDistributeSec);
+		}
+		//判断信号，fix me
+	//}
+
+	closesocket(sockClient);//关闭套接字
+}
+
+DWORD FileAnalysis::connectDistributeThread(LPVOID lpParam)
+{
+	FileAnalysis* p = (FileAnalysis*)lpParam;
+	p->SendAnalyzingFileNum();
 	return 0;
 }
 

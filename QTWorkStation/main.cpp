@@ -4,9 +4,9 @@
 #include "WorkStation.h"
 int main(int argc, char *argv[])
 {
+	QCoreApplication q(argc, argv);
 	WorkStation station;
-	station.Init();
 	//run
-
+	station.Run();
 	return 0;
 }

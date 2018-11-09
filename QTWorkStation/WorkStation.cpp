@@ -3,8 +3,8 @@
 
 struct FileParam
 {
-	std::string fileNames[100] = { 0 };
-	int fileSize[100] = { 0 };
+	std::string fileNames[100]  ;
+	int fileSize[100] ;
 	int num = 0;
 };
 struct SendToDistribute {
@@ -20,15 +20,29 @@ struct Status {
 };
 WorkStation::WorkStation()
 {
-
+	Init();
 }
 
 void WorkStation::Run()
 {
+	//开启socket，等待 connect
+	InitStationSocket();
+	//connect manager send ip
+	InitManagerSocket();
+	while (true) {
+		//通知发送文件
+		if (!isSending) {
+			InitDistributeSocket();
+		}
+		Sleep(1000 * 20);
+	}
 }
 
 void WorkStation::Init()
 {
+	//测试
+	ips.push_back("127.0.0.1");
+	//GetIps();
 	GetConfig();
 	InitSocket();
 }
@@ -54,7 +68,7 @@ int WorkStation::InitSocket()
 		WSACleanup();
 		return FALSE;
 	}
-
+	return 1;
 }
 
 void WorkStation::GetConfig()
@@ -62,32 +76,64 @@ void WorkStation::GetConfig()
 	GetIps();
 	port = 8989;
 	isSending = false;
-	auto path=QDir::currentPath()+"/config.config";
+	auto path= QCoreApplication::applicationDirPath() +"/config.config";
 	QFile file(path);
 	if (file.exists()) {
-		auto portstr=file.readAll().data();
+		file.open(QFile::ReadOnly | QFile::Text);
+		auto portstr=file.readLine();
 		port=atoi(portstr);
+		file.close();
 	}
+
+	//获取管理器的IP和端口
+	auto managerPath = QCoreApplication::applicationDirPath() + "/man.config";
+	QFile mfile(managerPath);
+	if (mfile.exists()) {
+		mfile.open(QFile::ReadOnly);
+		QTextStream in(&mfile);
+		while (!in.atEnd()) {
+			QStringList infoList = in.readLine().split(',');
+			this->managerIP = infoList[0].toStdString();
+			this->managerPort = infoList[1].toInt();
+		}
+		mfile.close();
+	}
+
+	//获取分配器的IP和端口
+	auto distributePath = QCoreApplication::applicationDirPath() + "/dis.config";
+	QFile dfile(distributePath);
+	if (dfile.exists()) {
+		dfile.open(QFile::ReadOnly);
+		QTextStream in(&dfile);
+		while (!in.atEnd()) {
+			QStringList infoList = in.readLine().split(',');
+			this->distributeIP = infoList[0].toStdString();
+			this->distributePort = infoList[1].toInt();
+		}
+		dfile.close();
+	}
+
+
 }
 
 void WorkStation::SendFile()
 {
-	//已读的总大小
-	long totalBytes = 0;
-	int actualSendBytes = 0;
-	char infochar[1024];
+
+	char infochar[1024*100];
 	char recvBuffer[1024];
 	
 	//获取列表
 	auto fileList = GetFileList();
 	//
-
+	auto path = QCoreApplication::applicationDirPath();
+	path += "/file/";
 	//读取文件信息
 	FileParam fileParam;
 	int index = 0;
 	for each (QString filePath in fileList)
 	{
-		QFileInfo info(filePath);
+		
+		QFileInfo info(path+filePath);
 		auto qname = info.fileName().toStdString();
 		fileParam.fileNames[index]=qname;
 		fileParam.fileSize[index]=info.size();
@@ -100,10 +146,10 @@ void WorkStation::SendFile()
 	memcpy(infochar, &fileParam, sizeof(fileParam));
 
 	//改标志位
-	this->isSending = true;
+	isSending = true;
 
 	//第一次先发送文件信息
-	send(analysisSocket, infochar, 1024, NULL);
+	send(analysisSocket, infochar, sizeof(infochar), NULL);
 
 	//可以确保对方接受完了文件信息
 	recv(analysisSocket, recvBuffer, 1024, NULL);
@@ -111,21 +157,25 @@ void WorkStation::SendFile()
 	//循环发送文件
 	for each(QString filePath in fileList)
 	{
-		QFile file(filePath);
-		file.open(QFile::ReadOnly);
+		QFile file(path+filePath);
+		auto res=file.open(QFile::ReadOnly);
 
 		QDataStream stream(&file);
 
 		char Buffer[1024];
 		DWORD dwNumberOfBytesRead;
 
-
-
+		//已读的总大小
+		long totalBytes = 0;
+		int actualSendBytes = 0;
 		do
 		{
 			//::ReadFile(hFile, Buffer, sizeof(Buffer), &dwNumberOfBytesRead, NULL);
 			dwNumberOfBytesRead = stream.readRawData(Buffer, sizeof(Buffer));
 			actualSendBytes = ::send(analysisSocket, Buffer, dwNumberOfBytesRead, 0);
+
+			//每传一次等待一次对方告诉接收完毕
+			//recv(analysisSocket, recvBuffer, 1024, NULL);
 
 			//防止缓冲区溢出丢失数据
 			totalBytes += actualSendBytes;
@@ -138,8 +188,11 @@ void WorkStation::SendFile()
 		recv(analysisSocket, recvBuffer, 1024, NULL);
 
 		//检验确认信号 fix me
-	}
 
+		//模拟比较久的发送
+		Sleep(100);
+	}
+	isSending = false;
 	
 }
 
@@ -147,6 +200,7 @@ int WorkStation::InitStationSocket()
 {
 	CreateStationSocket();
 	HANDLE hThread = CreateThread(NULL, 0, WorkStation::AcceptAnalysisThread, this, 0, NULL);
+	return 0;
 }
 
 int WorkStation::CreateStationSocket()
@@ -298,11 +352,14 @@ void WorkStation::SendIPAndStatus()
 			//结构体转成char[]
 			memcpy(sendBuffer, &status, sizeof(status));
 
-			//第一次先发送文件信息
+			//发送状态信息
 			send(sockClient, sendBuffer, 1024, NULL);
 
 			//然后等待确认指令
 			recv(sockClient, recvBuffer, 1024, 0);
+
+			//每1秒发一次
+			Sleep(1000);
 		}
 		//判断信号，fix me
 	}
@@ -361,10 +418,10 @@ QStringList WorkStation::GetFileList()
 {
 
 	//获取文件列表
-	auto path=QDir::currentPath();
+	auto path= QCoreApplication::applicationDirPath();
 	path += "/file/";
 	QDir dir(path);
-	auto fileList=dir.entryList();
+	auto fileList=dir.entryList(QDir::Files);
 	return fileList;
 }
 

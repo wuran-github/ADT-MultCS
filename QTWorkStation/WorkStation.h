@@ -8,6 +8,10 @@
 #include <qfileinfo.h>
 #include <qdir.h>
 #include <qdatastream.h>
+#include <QtCore/QCoreApplication>
+
+#pragma comment(lib,"ws2_32.lib")
+
 class WorkStation
 {
 public:
@@ -23,6 +27,7 @@ public:
 
 	//发送文件给分析器
 	void SendFile();
+	//创建socket等待analysis connect
 	int InitStationSocket();
 	int CreateStationSocket();
 	void AcceptAnalysis();
@@ -56,6 +61,7 @@ private:
 
 	//status
 	bool isSending;
+	int sendBufferSize = 1024 * 100;
 
 	SOCKET stationSocket;
 	SOCKET distributeSocket;

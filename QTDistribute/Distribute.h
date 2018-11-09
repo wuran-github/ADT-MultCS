@@ -10,6 +10,9 @@
 #include <qdatastream.h>
 #include <time.h>
 #include <queue>
+#include <QtCore/QCoreApplication>
+#include <algorithm>
+#pragma comment(lib,"ws2_32.lib")
 
 struct AnalysisData
 {
@@ -40,11 +43,16 @@ public:
 	static DWORD WINAPI GetStationInfoThread(LPVOID lpParam);
 
 	//analysis
-	int InitDistributeSocket();
-	int CreateDistributeSocket();
-	int AcceptStationSocket();
 	int NoticeAnalysis(std::string stationIP,int stationPort);
-	static DWORD WINAPI AcceptStationThread(LPVOID lpParam);
+
+	//
+	int InitAnalyzingSocket();
+	int CreateAnalyzingSocket();
+	int AcceptAnalyzingFileSocket();
+	void GetAnalyzingFileNum(SOCKET socket);
+
+	static DWORD WINAPI GetAnalyzingFileThread(LPVOID lpParam);
+	static DWORD WINAPI AcceptAnalyzingFileThread(LPVOID lpParam);
 
 	~Distribute();
 private:
@@ -61,13 +69,15 @@ private:
 	//File Analysis
 	std::vector<AnalysisData> AnalysisList;
 	int nowAnalysis;
+	std::vector<int> AnalyzingFile;
+
 	//status
 	bool isReceiving;
 	bool isAnalysing;
 
 	SOCKET stationSocket;
 	SOCKET distributeSocket;
-	SOCKET managerSocket;
+	SOCKET acceptAnalyzingFileSocket;
 	SOCKET analysisSocket;
 };
 
