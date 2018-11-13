@@ -170,12 +170,8 @@ void WorkStation::SendFile()
 		int actualSendBytes = 0;
 		do
 		{
-			//::ReadFile(hFile, Buffer, sizeof(Buffer), &dwNumberOfBytesRead, NULL);
 			dwNumberOfBytesRead = stream.readRawData(Buffer, sizeof(Buffer));
 			actualSendBytes = ::send(analysisSocket, Buffer, dwNumberOfBytesRead, 0);
-
-			//每传一次等待一次对方告诉接收完毕
-			//recv(analysisSocket, recvBuffer, 1024, NULL);
 
 			//防止缓冲区溢出丢失数据
 			totalBytes += actualSendBytes;
